@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { CiEraser } from "react-icons/ci";
 import { GoPencil } from "react-icons/go";
+import { BsSun, BsMoon } from "react-icons/bs";
+
 interface Puzzle {
   Mat: number[][];
   B: number[][];
@@ -10,6 +12,7 @@ interface Puzzle {
 
 const N: number = 6;
 const MaxSum: number = 5;
+const TOTAL_HEARTS: number = 3;
 
 const generatePuzzle = (): Puzzle => {
   let Mat: number[][] = [];
@@ -56,32 +59,55 @@ const App: React.FC = () => {
       .map(() => Array(N).fill(-1))
   );
   const [gameOver, setGameOver] = useState<boolean>(false);
-  const [hearts, setHearts] = useState<number>(3);
+  const [hearts, setHearts] = useState<number>(TOTAL_HEARTS);
   const [tool, setTool] = useState<"pen" | "eraser">("pen");
-  const [completedCells, setCompletedCells] = useState<number>(0); // Track completed actions
+  const [completedCells, setCompletedCells] = useState<number>(0);
+  const [time, setTime] = useState<number>(0);
+  const [wrongCells, setWrongCells] = useState<Set<string>>(new Set());
+  const [blinkingCells, setBlinkingCells] = useState<Set<string>>(new Set());
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!gameOver && hearts > 0) {
+      const timer = setInterval(() => {
+        setTime((prev) => prev + 1);
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [gameOver, hearts]);
 
   const handleCellClick = (row: number, col: number): void => {
-    if (gameOver || hearts <= 0 || playerB[row][col] !== -1) return; // Lock if already interacted
+    if (gameOver || hearts <= 0 || playerB[row][col] !== -1) return;
 
     const newPlayerB: number[][] = playerB.map((r) => [...r]);
     const isCorrect = puzzle.B[row][col] === (tool === "pen" ? 1 : 0);
 
-    if (tool === "pen") {
-      if (isCorrect) {
-        newPlayerB[row][col] = 1; // Circle the number
-        setCompletedCells(completedCells + 1);
-      } else {
-        setHearts(hearts - 1);
-        newPlayerB[row][col] = -1; // Reset to neutral if wrong
+    if (isCorrect) {
+      newPlayerB[row][col] = tool === "pen" ? 1 : 0;
+      setCompletedCells(completedCells + 1);
+
+      const rowCompleted = newPlayerB[row].every(
+        (val, j) => val === puzzle.B[row][j]
+      );
+      const colCompleted = newPlayerB.every(
+        (r, i) => r[col] === puzzle.B[i][col]
+      );
+
+      if (rowCompleted || colCompleted) {
+        triggerBlinkAnimation(row, col, rowCompleted, colCompleted);
       }
-    } else if (tool === "eraser") {
-      if (isCorrect) {
-        newPlayerB[row][col] = 0; // Erase the number
-        setCompletedCells(completedCells + 1);
-      } else {
-        setHearts(hearts - 1);
-        newPlayerB[row][col] = -1; // Reset to neutral if wrong
-      }
+    } else {
+      setHearts(hearts - 1);
+      newPlayerB[row][col] = -1;
+      const cellKey = `${row}-${col}`;
+      setWrongCells((prev) => new Set(prev).add(cellKey));
+      setTimeout(() => {
+        setWrongCells((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(cellKey);
+          return newSet;
+        });
+      }, 300);
     }
 
     setPlayerB(newPlayerB);
@@ -92,20 +118,61 @@ const App: React.FC = () => {
     }
   };
 
+  const triggerBlinkAnimation = (
+    row: number,
+    col: number,
+    rowCompleted: boolean,
+    colCompleted: boolean
+  ): void => {
+    const delay = 50;
+    const blinkDuration = 100;
+
+    if (rowCompleted) {
+      for (let j = 0; j < N; j++) {
+        const cellKey = `${row}-${j}`;
+        setTimeout(() => {
+          setBlinkingCells((prev) => new Set(prev).add(cellKey));
+          setTimeout(() => {
+            setBlinkingCells((prev) => {
+              const newSet = new Set(prev);
+              newSet.delete(cellKey);
+              return newSet;
+            });
+          }, blinkDuration);
+        }, j * delay);
+      }
+    }
+
+    if (colCompleted) {
+      for (let i = 0; i < N; i++) {
+        const cellKey = `${i}-${col}`;
+        setTimeout(() => {
+          setBlinkingCells((prev) => new Set(prev).add(cellKey));
+          setTimeout(() => {
+            setBlinkingCells((prev) => {
+              const newSet = new Set(prev);
+              newSet.delete(cellKey);
+              return newSet;
+            });
+          }, blinkDuration);
+        }, i * delay);
+      }
+    }
+  };
+
   useEffect(() => {
-    // Check if all cells are completed (N * N actions)
     if (completedCells === N * N) {
       const isCorrect = playerB.every((row, i) =>
         row.every((val, j) => val === puzzle.B[i][j])
       );
       setGameOver(true);
       if (isCorrect) {
-        alert("Congratulations! You solved the puzzle!");
+        alert(`Congratulations! You solved the puzzle in ${time} seconds!`);
       } else {
         alert("Sorry, you didn’t solve it correctly.");
       }
     }
-  }, [completedCells, playerB, puzzle.B]);
+  }, [completedCells, playerB, puzzle.B, time]);
 
   const resetGame = (): void => {
     setPuzzle(generatePuzzle());
@@ -115,50 +182,70 @@ const App: React.FC = () => {
         .map(() => Array(N).fill(-1))
     );
     setGameOver(false);
-    setHearts(3);
+    setHearts(TOTAL_HEARTS);
     setTool("pen");
     setCompletedCells(0);
+    setTime(0);
+    setWrongCells(new Set());
+    setBlinkingCells(new Set());
   };
 
   const toggleTool = (): void => {
     setTool(tool === "pen" ? "eraser" : "pen");
   };
 
+  const toggleTheme = (): void => {
+    setIsDarkMode((prev) => !prev);
+  };
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const renderHearts = (): string => {
+    const activeHearts = Array(hearts).fill("❤️").join("");
+    const lostHearts = Array(TOTAL_HEARTS - hearts).fill("🩶").join("");
+    return activeHearts + lostHearts;
+  };
+
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4 select-none">
+    <div
+      className={`min-h-screen flex flex-col items-center justify-center p-4 select-none ${
+        isDarkMode ? "bg-gray-900 text-white" : "bg-gray-100 text-black"
+      }`}
+    >
+      {/* Theme toggle in top-right */}
+      <div className="w-full flex justify-end mb-4">
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-full absolute right-4 top-4 bg-gray-300 dark:bg-gray-700 text-black dark:text-white hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors duration-200"
+        >
+          {isDarkMode ? <BsSun size={20} /> : <BsMoon size={20} />}
+        </button>
+      </div>
+
       <h1 className="text-3xl font-bold mb-4 animate-fade-in">
         Sum Puzzle Game
       </h1>
 
       <div className="mb-4 flex items-center space-x-4 animate-fade-in">
-        <span className="font-bold text-lg">
-          Hearts: {Array(hearts).fill("❤️").join("")}
-        </span>
-        <div
-          onClick={toggleTool}
-          className="relative w-16 h-8 bg-gray-300 rounded-full cursor-pointer flex items-center p-1 transition-all duration-300"
-        >
-          <div
-            className={`w-6 h-6 bg-white rounded-full shadow-md flex items-center justify-center transition-transform duration-300 ${
-              tool === "pen" ? "translate-x-0" : "translate-x-8"
-            }`}
-          >
-            {tool === "pen" ? <GoPencil /> : <CiEraser />}
-          </div>
-        </div>
+        <span className="font-bold text-lg">Hearts: {renderHearts()}</span>
+        <span className="font-bold text-lg">Time: {formatTime(time)}</span>
       </div>
 
       <div
         className="grid gap-1"
-        style={{ gridTemplateColumns: `repeat(${N + 1}, minmax(0, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${N + 1}, 2.5rem)` }} // Fixed width for tight spacing
       >
-        <div className="w-10 h-10 flex items-center justify-center font-bold">
-          
-        </div>
+        <div className="w-10 h-10 flex items-center justify-center font-bold"></div>
         {puzzle.D.map((sum, j) => (
           <div
             key={j}
-            className="w-10 h-10 flex items-center justify-center font-bold bg-rose-200 rounded-sm"
+            className={`w-10 h-10 flex items-center justify-center font-bold rounded-sm ${
+              isDarkMode ? "bg-rose-400 text-white" : "bg-rose-200 text-black"
+            }`}
           >
             {sum}
           </div>
@@ -166,36 +253,88 @@ const App: React.FC = () => {
 
         {puzzle.Mat.map((row, i) => (
           <>
-            <div className="w-10 h-10 flex items-center justify-center font-bold bg-rose-200 rounded-sm">
+            <div
+              className={`w-10 h-10 flex items-center justify-center font-bold rounded-sm ${
+                isDarkMode ? "bg-rose-400 text-white" : "bg-rose-200 text-black"
+              }`}
+            >
               {puzzle.C[i]}
             </div>
-            {row.map((val, j) => (
-              <div
-                key={`${i}-${j}`}
-                onClick={() => handleCellClick(i, j)}
-                className={`w-10 h-10 flex items-center justify-center border border-gray-400 cursor-pointer transition-all duration-200 ${
-                  playerB[i][j] === 1
-                    ? "bg-violet-200 rounded-full scale-105"
-                    : playerB[i][j] === 0
-                    ? "bg-white rounded-sm opacity-50"
-                    : "bg-white hover:bg-gray-50"
-                }`}
-              >
-                {playerB[i][j] === 0 ? "" : val}
-              </div>
-            ))}
+            {row.map((val, j) => {
+              const cellKey = `${i}-${j}`;
+              const isWrong = wrongCells.has(cellKey);
+              const isBlinking = blinkingCells.has(cellKey);
+              return (
+                <div
+                  key={cellKey}
+                  onClick={() => handleCellClick(i, j)}
+                  className={`w-10 h-10 flex items-center justify-center border border-gray-400 cursor-pointer transition-all duration-200 ${
+                    isWrong
+                      ? "bg-red-500 text-white"
+                      : isBlinking
+                      ? "animate-blink"
+                      : playerB[i][j] === 1
+                      ? ` rounded-full scale-105 ${
+                          isDarkMode ? "bg-violet-400" : "bg-violet-200"
+                        }`
+                      : playerB[i][j] === 0
+                      ? isDarkMode
+                        ? "bg-gray-800 rounded-sm opacity-50"
+                        : "bg-white rounded-sm opacity-50"
+                      : isDarkMode
+                      ? "bg-gray-700 hover:bg-gray-600"
+                      : "bg-white hover:bg-gray-50"
+                  }`}
+                >
+                  {playerB[i][j] === 0 ? "" : val}
+                </div>
+              );
+            })}
           </>
         ))}
       </div>
 
-      <div className="mt-4 space-x-4 animate-fade-in">
-        <button
-          onClick={resetGame}
-          className="px-4 py-2 border rounded hover:bg-black hover:text-white transition-colors duration-200"
+      <div className="mt-4 flex justify-center animate-fade-in">
+        <div
+          onClick={toggleTool}
+          className={`relative w-24 h-12 rounded-full cursor-pointer flex items-center p-2 transition-all duration-300 ${
+            isDarkMode ? "bg-gray-700" : "bg-gray-300"
+          }`}
         >
-          New Game
-        </button>
+          <div
+            className={`w-8 h-8 bg-white rounded-full shadow-md flex items-center justify-center transition-transform duration-300 ${
+              tool === "pen" ? "translate-x-0" : "translate-x-12"
+            }`}
+          >
+            {tool === "pen" ? (
+              <GoPencil
+                size={24}
+                className={` ${isDarkMode ? "text-black" : ""}`}
+              />
+            ) : (
+              <CiEraser
+                size={24}
+                className={` ${isDarkMode ? "text-black" : ""}`}
+              />
+            )}
+          </div>
+        </div>
       </div>
+
+      {gameOver && (
+        <div className="mt-4 flex justify-center animate-fade-in">
+          <button
+            onClick={resetGame}
+            className={`px-4 py-2 border rounded transition-colors duration-200 ${
+              isDarkMode
+                ? "border-white text-white hover:bg-gray-700"
+                : "border-black text-black hover:bg-black hover:text-white"
+            }`}
+          >
+            New Game
+          </button>
+        </div>
+      )}
     </div>
   );
 };
